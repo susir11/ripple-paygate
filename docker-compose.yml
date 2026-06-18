@@ -43,5 +43,14 @@ services:
     ports:
       - "9091:9091"
 
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    restart: unless-stopped
+    depends_on:
+      - api-gateway
+    ports:
+      - "3000:80"
+
 volumes:
   pgdata:
