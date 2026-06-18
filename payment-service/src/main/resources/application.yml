@@ -5,13 +5,16 @@ spring:
   application:
     name: payment-service
   datasource:
-    url: jdbc:postgresql://localhost:5432/paygate_db
-    username: postgres  # Your pgAdmin username (usually 'postgres')
-    password: Asdf@asdf12 # The password you set during installation
+    # "postgres-db" isn't a real internet address — it's the name we're about
+    # to give the Postgres container in docker-compose.yml. Inside Docker's
+    # internal network, containers can find each other by service name.
+    url: jdbc:postgresql://postgres-db:5432/${DB_NAME:paygate_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:changeme}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: update # This automatically creates the tables in pgAdmin!
+      ddl-auto: update
     show-sql: true
     properties:
       hibernate:
@@ -20,10 +23,9 @@ spring:
 eureka:
   client:
     service-url:
-      defaultZone: http://localhost:8761/eureka/
+      # Same idea — "eureka-server" will be a container name, not "localhost"
+      defaultZone: http://eureka-server:8761/eureka/
 
-      logging:
-        level:
-          org:
-            springframework:
-              web=DEBUG:
+logging:
+  level:
+    org.springframework.web: DEBUG
