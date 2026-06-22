@@ -41,7 +41,33 @@ button {
 }
 button:hover { background: #1d54bd; }
 
-.result { margin-top: 20px; padding: 14px; border-radius: 8px; font-size: 14px; line-height: 1.5; }
+.result {
+  margin-top: 20px;
+  padding: 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+}
 .result.success { background: #e7f6ec; color: #1e7a3c; }
 .result.error { background: #fdeceb; color: #b3261e; }
 .hidden { display: none; }
+
+.switch-text { text-align: center; margin-top: 16px; }
+.switch-text a { color: #2d6cdf; text-decoration: none; }
+.switch-text a:hover { text-decoration: underline; }
+
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.header-row h1 { margin: 0; }
+
+.logout {
+  width: auto;
+  padding: 6px 14px;
+  font-size: 13px;
+  background: #e53935;
+}
+.logout:hover { background: #c62828; }

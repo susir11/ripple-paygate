@@ -7,13 +7,62 @@
 </head>
 <body>
 
-<div class="card">
+<!-- LOGIN SCREEN — shown first, hidden after successful login -->
+<div class="card" id="login-card">
     <h1>Ripple PayGate</h1>
-    <p>Enter an amount to process a payment through the gateway.</p>
+    <p>Sign in to process payments.</p>
+
+    <div id="login-error" class="result error hidden"></div>
+
+    <form id="login-form">
+        <label for="username">Username</label>
+        <input type="text" id="username" required placeholder="Enter username">
+
+        <label for="password">Password</label>
+        <input type="password" id="password" required placeholder="Enter password">
+
+        <button type="submit">Login</button>
+    </form>
+
+    <p class="switch-text">
+        No account? <a href="#" id="go-register">Register here</a>
+    </p>
+</div>
+
+<!-- REGISTER SCREEN — shown when user clicks "Register here" -->
+<div class="card hidden" id="register-card">
+    <h1>Create Account</h1>
+    <p>Register to start processing payments.</p>
+
+    <div id="register-error" class="result error hidden"></div>
+
+    <form id="register-form">
+        <label for="reg-username">Username</label>
+        <input type="text" id="reg-username" required placeholder="Choose a username">
+
+        <label for="reg-password">Password</label>
+        <input type="password" id="reg-password" required placeholder="Choose a password">
+
+        <button type="submit">Register</button>
+    </form>
+
+    <p class="switch-text">
+        Already have an account? <a href="#" id="go-login">Login here</a>
+    </p>
+</div>
+
+<!-- PAYMENT SCREEN — shown after successful login -->
+<div class="card hidden" id="payment-card">
+    <div class="header-row">
+        <h1>Process Payment</h1>
+        <button id="logout-btn" class="logout">Logout</button>
+    </div>
+    <p id="welcome-msg"></p>
 
     <form id="payment-form">
         <label for="amount">Amount</label>
-        <input type="number" id="amount" step="0.01" min="0" required placeholder="e.g. 250.00">
+        <input type="number" id="amount" step="0.01" min="0"
+               required placeholder="e.g. 250.00">
         <button type="submit">Process Payment</button>
     </form>
 

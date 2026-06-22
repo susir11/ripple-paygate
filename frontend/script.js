@@ -1,45 +1,140 @@
-// This is the API Gateway's address, not payment-service directly.
-// The browser only ever talks to the gateway — the gateway is the only
-// thing allowed to reach payment-service, by design (that's GatewayFilter).
-const GATEWAY_URL = "http://localhost:8080/api/payments/process";
+const GATEWAY = "http://localhost:8080";
 
-const form = document.getElementById("payment-form");
-const resultBox = document.getElementById("result");
+// We store the JWT token in a plain variable.
+// It lives only as long as the browser tab is open —
+// when you close the tab, it's gone and you must log in again.
+// This is intentional — no localStorage, keeping it simple and safe.
+let jwtToken = null;
 
-form.addEventListener("submit", async (event) => {
-  // Stop the browser's default "reload the whole page" form behavior,
-  // since we want to handle the submission ourselves with JavaScript.
-  event.preventDefault();
+// ─── Screen switching ────────────────────────────────────────────────────────
 
-  const amount = document.getElementById("amount").value;
+function showCard(id) {
+  document.querySelectorAll(".card").forEach(c => c.classList.add("hidden"));
+  document.getElementById(id).classList.remove("hidden");
+}
+
+document.getElementById("go-register").addEventListener("click", (e) => {
+  e.preventDefault();
+  showCard("register-card");
+});
+
+document.getElementById("go-login").addEventListener("click", (e) => {
+  e.preventDefault();
+  showCard("login-card");
+});
+
+// ─── Register ────────────────────────────────────────────────────────────────
+
+document.getElementById("register-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const username = document.getElementById("reg-username").value;
+  const password = document.getElementById("reg-password").value;
 
   try {
-    const response = await fetch(GATEWAY_URL, {
+    const response = await fetch(`${GATEWAY}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount: parseFloat(amount) })
+      body: JSON.stringify({ username, password })
     });
 
-    if (!response.ok) {
-      throw new Error(`Server responded with status ${response.status}`);
-    }
+    if (!response.ok) throw new Error("Registration failed");
 
-    const data = await response.json();
-    showResult(data, true);
+    // Registration returns a token immediately — log them in right away
+    jwtToken = await response.text();
+    onLoginSuccess(username);
 
   } catch (error) {
-    showResult({ message: error.message }, false);
+    showError("register-error", error.message);
   }
 });
 
-function showResult(data, success) {
-  resultBox.classList.remove("hidden", "success", "error");
-  resultBox.classList.add(success ? "success" : "error");
+// ─── Login ───────────────────────────────────────────────────────────────────
 
-  resultBox.innerHTML = success
-    ? `<strong>Payment successful</strong><br>
+document.getElementById("login-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const username = document.getElementById("username").value;
+  const password = document.getElementById("password").value;
+
+  try {
+    const response = await fetch(`${GATEWAY}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
+
+    if (!response.ok) throw new Error("Invalid username or password");
+
+    // Store the token — this is what gets sent with every payment request
+    jwtToken = await response.text();
+    onLoginSuccess(username);
+
+  } catch (error) {
+    showError("login-error", error.message);
+  }
+});
+
+function onLoginSuccess(username) {
+  document.getElementById("welcome-msg").textContent =
+    `Logged in as: ${username}`;
+  showCard("payment-card");
+}
+
+// ─── Logout ──────────────────────────────────────────────────────────────────
+
+document.getElementById("logout-btn").addEventListener("click", () => {
+  // Clear the token — user must log in again to get a new one.
+  // In remittance terms: like ending a banking session.
+  jwtToken = null;
+  showCard("login-card");
+});
+
+// ─── Payment ─────────────────────────────────────────────────────────────────
+
+document.getElementById("payment-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const amount = document.getElementById("amount").value;
+  const resultBox = document.getElementById("result");
+
+  try {
+    const response = await fetch(`${GATEWAY}/api/payments/process`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // This is the key line — every payment request now carries
+        // the JWT token in the Authorization header.
+        // The gateway reads this, verifies the signature,
+        // and only then forwards the request to payment-service.
+        "Authorization": `Bearer ${jwtToken}`
+      },
+      body: JSON.stringify({ amount: parseFloat(amount) })
+    });
+
+    if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+
+    const data = await response.json();
+
+    resultBox.classList.remove("hidden", "error");
+    resultBox.classList.add("success");
+    resultBox.innerHTML =
+      `<strong>Payment successful</strong><br>
        Transaction ID: ${data.transactionId}<br>
        Amount: ${data.amount}<br>
-       Status: ${data.status}`
-    : `<strong>Something went wrong</strong><br>${data.message}`;
+       Status: ${data.status}`;
+
+  } catch (error) {
+    resultBox.classList.remove("hidden", "success");
+    resultBox.classList.add("error");
+    resultBox.innerHTML = `<strong>Payment failed</strong><br>${error.message}`;
+  }
+});
+
+// ─── Helper ──────────────────────────────────────────────────────────────────
+
+function showError(elementId, message) {
+  const el = document.getElementById(elementId);
+  el.textContent = message;
+  el.classList.remove("hidden");
 }

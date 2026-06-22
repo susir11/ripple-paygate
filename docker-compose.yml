@@ -20,12 +20,39 @@ services:
     ports:
       - "8761:8761"
 
+  # Auth service handles registration and login.
+  # It issues JWT tokens that the gateway will validate
+  # on every subsequent payment request.
+  auth-service:
+    build: ./auth-service
+    container_name: auth-service
+    restart: unless-stopped
+    depends_on:
+      - postgres-db
+      - eureka-server
+    environment:
+      DB_NAME: ${DB_NAME}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      # JWT_SECRET is shared between auth-service (signs tokens)
+      # and api-gateway (verifies tokens).
+      # Same key on both sides — like a shared signing certificate.
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "8082:8082"
+
   api-gateway:
     build: ./api-gateway
     container_name: api-gateway
     restart: unless-stopped
     depends_on:
       - eureka-server
+      - auth-service
+    environment:
+      # Gateway needs the same JWT_SECRET to verify tokens
+      # that auth-service signed. Without this, it can't
+      # validate incoming requests.
+      JWT_SECRET: ${JWT_SECRET}
     ports:
       - "8080:8080"
 

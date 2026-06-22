@@ -18,10 +18,16 @@ spring:
               - OPTIONS
             allowedHeaders: "*"
       routes:
+        - id: auth-service-route
+          uri: lb://auth-service
+          predicates:
+            - Path=/auth/**
+
         - id: payment-service-route
           uri: lb://payment-service
           predicates:
             - Path=/api/payments/**
+
       default-filters:
         - AddRequestHeader=X-INTERNAL-GATEWAY,true
 
@@ -29,3 +35,6 @@ eureka:
   client:
     service-url:
       defaultZone: http://eureka-server:8761/eureka/
+
+jwt:
+  secret: ${JWT_SECRET:thisIsADefaultSecretKeyForDevOnlyChangeInProd}
