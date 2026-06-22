@@ -22,11 +22,21 @@ spring:
           uri: lb://auth-service
           predicates:
             - Path=/auth/**
+          # No circuit breaker on auth — if login is down,
+          # we want the real error, not a payment fallback message
 
         - id: payment-service-route
           uri: lb://payment-service
           predicates:
             - Path=/api/payments/**
+          filters:
+            # Circuit Breaker filter — wraps the payment route.
+            # name: the circuit breaker instance name (used in config below)
+            # fallbackUri: where to redirect when circuit is OPEN
+            - name: CircuitBreaker
+              args:
+                name: paymentCircuitBreaker
+                fallbackUri: forward:/fallback/payment
 
       default-filters:
         - AddRequestHeader=X-INTERNAL-GATEWAY,true
@@ -38,3 +48,65 @@ eureka:
 
 jwt:
   secret: ${JWT_SECRET:thisIsADefaultSecretKeyForDevOnlyChangeInProd}
+
+# Resilience4j Circuit Breaker configuration
+# This is where you tune how sensitive the circuit breaker is
+resilience4j:
+  circuitbreaker:
+    instances:
+      paymentCircuitBreaker:
+        # How many recent calls to track at once (sliding window)
+        # Like a rolling 10-transaction sample in a payment corridor
+        sliding-window-size: 10
+
+        # If 50% of those 10 calls fail, OPEN the circuit
+        # (stop sending requests to payment-service)
+        failure-rate-threshold: 50
+
+        # Minimum calls before the circuit can open.
+        # Prevents opening on just 1 unlucky failure at startup.
+        minimum-number-of-calls: 5
+
+        # How long to wait in OPEN state before trying again (HALF-OPEN).
+        # Like a retry window after a failed corridor — wait 10 seconds
+        # then test with a small number of requests to see if it recovered.
+        wait-duration-in-open-state: 10s
+
+        # How many test requests to allow through in HALF-OPEN state.
+        # If these succeed, circuit goes back to CLOSED (normal operation).
+        permitted-number-of-calls-in-half-open-state: 3
+
+        # Also open the circuit if calls are taking too long —
+        # a slow service is as bad as a dead one in a payment system.
+        slow-call-duration-threshold: 3s
+        slow-call-rate-threshold: 50
+
+# Expose circuit breaker health details via actuator
+# Visit http://localhost:8080/actuator/health to see current state
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always
+  health:
+    circuitbreakers:
+      enabled: true
+
+      # This tells Resilience4j actuator to register
+      # the circuit breaker instance for health reporting
+  resilience4j:
+    circuitbreaker:
+      instances:
+        paymentCircuitBreaker:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        minimum-number-of-calls: 5
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        slow-call-duration-threshold: 3s
+        slow-call-rate-threshold: 50
+              # This line is what registers it with the actuator health endpoint
+        register-health-indicator: true

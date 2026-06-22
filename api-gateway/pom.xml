@@ -64,6 +64,20 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Resilience4j Circuit Breaker for reactive Spring Cloud Gateway -->
+        <!-- This is the engine that tracks failures and opens/closes the circuit -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-circuitbreaker-reactor-resilience4j</artifactId>
+        </dependency>
+
+        <!-- Actuator exposes a /actuator/health endpoint so you can see -->
+        <!-- the circuit breaker's current state (CLOSED/OPEN/HALF_OPEN) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
     </dependencies>
 
     <dependencyManagement>
