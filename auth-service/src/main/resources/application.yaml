@@ -1,0 +1,34 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: auth-service
+  datasource:
+    # Same postgres-db container as payment-service — both services
+    # share the same database server but use different tables.
+    # users table belongs to auth-service, payments table to payment-service.
+    url: jdbc:postgresql://postgres-db:5432/${DB_NAME:paygate_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:changeme}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka-server:8761/eureka/
+
+# JWT configuration
+# Secret must be at least 32 characters long for HMAC-SHA256 to work.
+# This same secret will be used by the gateway to VERIFY tokens.
+# Think of it as the shared signing key between the issuer and verifier.
+jwt:
+  secret: ${JWT_SECRET:thisIsADefaultSecretKeyForDevOnlyChangeInProd}
+  expiration: 86400000  # 24 hours in milliseconds (24 * 60 * 60 * 1000)
