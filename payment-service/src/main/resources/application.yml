@@ -26,6 +26,20 @@ eureka:
       # Same idea — "eureka-server" will be a container name, not "localhost"
       defaultZone: http://eureka-server:8761/eureka/
 
+# eSewa ePay v2. Defaults are eSewa's public sandbox (UAT) merchant —
+# no registration needed. Override with env vars for a real merchant account.
+# Values are quoted because the sandbox secret contains ':' and '&'.
+esewa:
+  product-code: "${ESEWA_PRODUCT_CODE:EPAYTEST}"
+  secret-key: "${ESEWA_SECRET_KEY:8gBm/:&EnhH.1/q}"
+  form-url: "${ESEWA_FORM_URL:https://rc-epay.esewa.com.np/api/epay/main/v2/form}"
+  status-url: "${ESEWA_STATUS_URL:https://rc.esewa.com.np/api/epay/transaction/status/}"
+  # eSewa redirects the user's browser here, so these go through the gateway (8080)
+  success-url: "${ESEWA_SUCCESS_URL:http://localhost:8080/api/payments/esewa/success}"
+  failure-url: "${ESEWA_FAILURE_URL:http://localhost:8080/api/payments/esewa/failure}"
+  # After verifying, we send the browser to this frontend page
+  result-page-url: "${ESEWA_RESULT_PAGE_URL:http://localhost:3000/result.html}"
+
 logging:
   level:
     org.springframework.web: DEBUG

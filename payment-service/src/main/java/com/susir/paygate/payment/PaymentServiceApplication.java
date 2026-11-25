@@ -2,9 +2,11 @@ package com.susir.paygate.payment;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 
 @SpringBootApplication
+@ConfigurationPropertiesScan  // picks up EsewaProperties (the "esewa:" block in application.yml)
 @EnableDiscoveryClient  // This tells Eureka: "Hey, I'm a worker, add me to your phone book!"
 public class PaymentServiceApplication {
 
