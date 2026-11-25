@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Payment Result — Ripple PayGate</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- eSewa → gateway → payment-service verifies → redirects here with ?status=...&txn=... -->
+<div class="card">
+    <h1>Payment Result</h1>
+    <p>Your eSewa payment has been checked with eSewa.</p>
+
+    <div id="result" class="result">
+        <strong id="result-title"></strong><br>
+        Transaction ID: <span id="result-txn"></span>
+    </div>
+
+    <p class="switch-text">
+        <a href="/">Back to Ripple PayGate</a><br>
+        <small>You'll need to log in again.</small>
+    </p>
+</div>
+
+<script src="result.js"></script>
+</body>
+</html>

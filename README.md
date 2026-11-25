@@ -130,7 +130,50 @@ All requests go through the API Gateway on port 8080.
 |---|---|---|---|
 | POST | /auth/register | No | Create a new account |
 | POST | /auth/login | No | Login and receive JWT token |
-| POST | /api/payments/process | Yes (Bearer token) | Process a payment |
+| POST | /api/payments/process | Yes (Bearer token) | Process a payment (simulated, no real provider) |
+| POST | /api/payments/esewa/initiate | Yes (Bearer token) | Create a PENDING payment and get a signed eSewa form |
+| GET | /api/payments/esewa/success | No (eSewa signature) | eSewa redirects here after payment; verified, then redirects to `result.html` |
+| GET | /api/payments/esewa/failure | No | eSewa redirects here on failure/cancel |
+
+---
+
+## Testing with eSewa sandbox
+
+The frontend pays through [eSewa ePay v2](https://developer.esewa.com.np/pages/Epay) using
+eSewa's public **sandbox** merchant (`EPAYTEST`). No real money moves and no registration
+is needed. In eSewa's terms, Ripple PayGate is the **merchant**.
+
+### How the flow works
+
+1. Logged-in user enters an amount and clicks **Pay with eSewa**.
+2. payment-service saves a `PENDING` payment and signs the form fields with
+   HMAC-SHA256 (the secret stays on the server).
+3. The browser posts the form to eSewa's sandbox, where the user logs in and pays.
+4. eSewa redirects back to `/api/payments/esewa/success` with base64-encoded, signed data.
+5. payment-service checks eSewa's signature and the amount, then asks eSewa's
+   status API to confirm. Only then is the payment marked `SUCCESS` (otherwise `FAILED`).
+6. The browser lands on `http://localhost:3000/result.html`.
+
+### Sandbox test account
+
+| | |
+|---|---|
+| eSewa ID | `9711111111` (also `9711111112`, `9711111113`) |
+| Password | `Nepal@123` |
+| MPIN | `1122` |
+| Token (OTP) | `123456` |
+
+### Checking the result in the database
+
+    docker exec -it postgres-db psql -U postgres -d paygate_db \
+      -c "select transaction_id, amount, status, ref_id from payments order by id desc limit 5;"
+
+### Config
+
+eSewa settings live under `esewa:` in `payment-service/src/main/resources/application.yml`
+and default to the sandbox. Each can be overridden with an env var
+(`ESEWA_PRODUCT_CODE`, `ESEWA_SECRET_KEY`, `ESEWA_FORM_URL`, `ESEWA_STATUS_URL`,
+`ESEWA_SUCCESS_URL`, `ESEWA_FAILURE_URL`, `ESEWA_RESULT_PAGE_URL`).
 
 ---
 

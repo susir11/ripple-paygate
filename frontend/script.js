@@ -92,44 +92,65 @@ document.getElementById("logout-btn").addEventListener("click", () => {
 
 // ─── Payment ─────────────────────────────────────────────────────────────────
 
+// Paying with eSewa happens in two steps:
+//  1. Ask our backend to create a PENDING payment and give us a signed form.
+//     (The signature is made on the server — the eSewa secret never reaches the browser.)
+//  2. Post that form to eSewa. The browser leaves our site; eSewa sends the user
+//     back to the gateway afterwards, which verifies the payment and shows result.html.
+
 document.getElementById("payment-form").addEventListener("submit", async (e) => {
   e.preventDefault();
 
   const amount = document.getElementById("amount").value;
   const resultBox = document.getElementById("result");
+  const payBtn = document.getElementById("pay-btn");
+
+  payBtn.disabled = true;
+  payBtn.textContent = "Redirecting to eSewa…";
 
   try {
-    const response = await fetch(`${GATEWAY}/api/payments/process`, {
+    const response = await fetch(`${GATEWAY}/api/payments/esewa/initiate`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        // This is the key line — every payment request now carries
-        // the JWT token in the Authorization header.
-        // The gateway reads this, verifies the signature,
-        // and only then forwards the request to payment-service.
+        // The gateway checks this JWT before forwarding to payment-service.
         "Authorization": `Bearer ${jwtToken}`
       },
       body: JSON.stringify({ amount: parseFloat(amount) })
     });
 
-    if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+    if (!response.ok) throw new Error(`Could not start payment (status ${response.status})`);
 
-    const data = await response.json();
-
-    resultBox.classList.remove("hidden", "error");
-    resultBox.classList.add("success");
-    resultBox.innerHTML =
-      `<strong>Payment successful</strong><br>
-       Transaction ID: ${data.transactionId}<br>
-       Amount: ${data.amount}<br>
-       Status: ${data.status}`;
+    const { formUrl, fields } = await response.json();
+    submitToEsewa(formUrl, fields);
 
   } catch (error) {
+    payBtn.disabled = false;
+    payBtn.textContent = "Pay with eSewa";
     resultBox.classList.remove("hidden", "success");
     resultBox.classList.add("error");
-    resultBox.innerHTML = `<strong>Payment failed</strong><br>${error.message}`;
+    resultBox.textContent = `Payment failed: ${error.message}`;
   }
 });
+
+// eSewa expects a normal HTML form POST (not fetch/JSON), so we build one
+// with a hidden input per field and submit it — the browser navigates to eSewa.
+function submitToEsewa(formUrl, fields) {
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = formUrl;
+
+  for (const [name, value] of Object.entries(fields)) {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  }
+
+  document.body.appendChild(form);
+  form.submit();
+}
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
