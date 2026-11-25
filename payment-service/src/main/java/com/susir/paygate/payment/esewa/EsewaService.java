@@ -2,12 +2,14 @@ package com.susir.paygate.payment.esewa;
 
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriComponentsBuilder;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
@@ -114,6 +116,30 @@ public class EsewaService {
                     text(node, "transaction_code"));
         } catch (Exception e) {
             return EsewaCallback.invalid();
+        }
+    }
+
+    /**
+     * Asks eSewa directly whether a transaction really completed — the redirect alone
+     * passed through the user's browser, so we double-check with eSewa server-to-server.
+     * Returns eSewa's status (COMPLETE, PENDING, NOT_FOUND, CANCELED, ...) or "ERROR"
+     * if eSewa can't be reached or answers with something unexpected.
+     */
+    public String checkStatus(String transactionUuid, String totalAmount) {
+        try {
+            URI uri = UriComponentsBuilder.fromUriString(props.statusUrl())
+                    .queryParam("product_code", props.productCode())
+                    .queryParam("total_amount", totalAmount)
+                    .queryParam("transaction_uuid", transactionUuid)
+                    .build()
+                    .encode()
+                    .toUri();
+
+            String body = restClient.get().uri(uri).retrieve().body(String.class);
+            String status = text(json.readTree(body), "status");
+            return status != null ? status : "ERROR";
+        } catch (Exception e) {
+            return "ERROR";
         }
     }
 
