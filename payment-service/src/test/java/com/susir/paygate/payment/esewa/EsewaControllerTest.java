@@ -97,25 +97,68 @@ class EsewaControllerTest {
     }
 
     @Test
-    void success_badSignature_marksFailed() throws Exception {
+    void success_badSignature_leavesPaymentUnchanged() throws Exception {
+        // Unsigned/forged data must never change a real payment — otherwise anyone who
+        // knows a transaction id could flip it to FAILED before eSewa's genuine redirect.
         Payment p = pending(100.0);
         callback(false, "COMPLETE", "100.0");
 
         expectRedirect("/api/payments/esewa/success?data=D", RESULT + "?status=failed&txn=abc-123");
 
-        assertEquals("FAILED", p.getStatus());
+        assertEquals("PENDING", p.getStatus());
+        verify(repo, never()).save(any());
         verify(esewa, never()).checkStatus(any(), any());
     }
 
     @Test
-    void success_statusCheckNotComplete_marksFailed() throws Exception {
+    void success_statusCheckError_keepsPending() throws Exception {
+        // eSewa's status API was unreachable: we don't know yet, so don't call it FAILED.
         Payment p = pending(100.0);
         callback(true, "COMPLETE", "100.0");
         when(esewa.checkStatus("abc-123", "100.0")).thenReturn("ERROR");
 
-        expectRedirect("/api/payments/esewa/success?data=D", RESULT + "?status=failed&txn=abc-123");
+        expectRedirect("/api/payments/esewa/success?data=D", RESULT + "?status=pending&txn=abc-123");
 
-        assertEquals("FAILED", p.getStatus());
+        assertEquals("PENDING", p.getStatus());
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void success_statusCheckEsewaPendingOrAmbiguous_keepsPending() throws Exception {
+        for (String esewaStatus : new String[]{"PENDING", "AMBIGUOUS"}) {
+            Payment p = pending(100.0);
+            callback(true, "COMPLETE", "100.0");
+            when(esewa.checkStatus("abc-123", "100.0")).thenReturn(esewaStatus);
+
+            expectRedirect("/api/payments/esewa/success?data=D", RESULT + "?status=pending&txn=abc-123");
+
+            assertEquals("PENDING", p.getStatus(), esewaStatus);
+        }
+    }
+
+    @Test
+    void success_statusCheckDefiniteNo_marksFailed() throws Exception {
+        for (String esewaStatus : new String[]{"NOT_FOUND", "CANCELED", "FULL_REFUND"}) {
+            Payment p = pending(100.0);
+            callback(true, "COMPLETE", "100.0");
+            when(esewa.checkStatus("abc-123", "100.0")).thenReturn(esewaStatus);
+
+            expectRedirect("/api/payments/esewa/success?data=D", RESULT + "?status=failed&txn=abc-123");
+
+            assertEquals("FAILED", p.getStatus(), esewaStatus);
+        }
+    }
+
+    @Test
+    void success_afterPending_secondHitVerifiesAgain() throws Exception {
+        Payment p = pending(100.0);
+        callback(true, "COMPLETE", "100.0");
+        when(esewa.checkStatus("abc-123", "100.0")).thenReturn("ERROR", "COMPLETE");
+
+        expectRedirect("/api/payments/esewa/success?data=D", RESULT + "?status=pending&txn=abc-123");
+        expectRedirect("/api/payments/esewa/success?data=D", RESULT + "?status=success&txn=abc-123");
+
+        assertEquals("SUCCESS", p.getStatus());
     }
 
     @Test

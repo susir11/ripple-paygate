@@ -55,6 +55,7 @@ button.esewa:hover { background: #4fa037; }
 }
 .result.success { background: #e7f6ec; color: #1e7a3c; }
 .result.error { background: #fdeceb; color: #b3261e; }
+.result.pending { background: #fff4e0; color: #8a5300; }
 .hidden { display: none; }
 
 .switch-text { text-align: center; margin-top: 16px; }

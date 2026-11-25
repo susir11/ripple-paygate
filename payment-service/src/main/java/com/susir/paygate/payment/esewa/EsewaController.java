@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -61,28 +62,44 @@ public class EsewaController {
 
         Payment payment = txn == null ? null : payments.findByTransactionId(txn).orElse(null);
         if (payment == null) {
-            return toResultPage(false, txn);
+            return toResultPage("failed", txn);
         }
 
         // Already decided (e.g. user refreshed the page): just show the outcome again.
         if (!"PENDING".equals(payment.getStatus())) {
-            return toResultPage("SUCCESS".equals(payment.getStatus()), txn);
+            return toResultPage("SUCCESS".equals(payment.getStatus()) ? "success" : "failed", txn);
         }
 
-        String expectedAmount = EsewaService.formatAmount(payment.getAmount());
-        boolean verified = cb.signatureValid()
-                && "COMPLETE".equals(cb.status())
-                && sameAmount(cb.totalAmount(), payment.getAmount())
-                && "COMPLETE".equals(esewa.checkStatus(txn, expectedAmount));
+        // Data that fails eSewa's signature didn't come from eSewa, so it must not
+        // change anything — otherwise anyone who knows a transaction id could flip it.
+        if (!cb.signatureValid()) {
+            return toResultPage("failed", txn);
+        }
 
-        payment.setStatus(verified ? "SUCCESS" : "FAILED");
-        if (verified) {
+        String esewaStatus = "COMPLETE".equals(cb.status()) && sameAmount(cb.totalAmount(), payment.getAmount())
+                ? esewa.checkStatus(txn, EsewaService.formatAmount(payment.getAmount()))
+                : "MISMATCH";
+
+        if ("COMPLETE".equals(esewaStatus)) {
+            payment.setStatus("SUCCESS");
             payment.setRefId(cb.transactionCode());
+            payments.save(payment);
+            return toResultPage("success", txn);
         }
-        payments.save(payment);
 
-        return toResultPage(verified, txn);
+        // Not a definite answer yet (eSewa unreachable, still processing, or "halted"):
+        // keep it PENDING so a later visit to this same link can verify again,
+        // instead of telling someone who paid that it failed.
+        if (UNDECIDED.contains(esewaStatus)) {
+            return toResultPage("pending", txn);
+        }
+
+        payment.setStatus("FAILED");
+        payments.save(payment);
+        return toResultPage("failed", txn);
     }
+
+    private static final Set<String> UNDECIDED = Set.of("ERROR", "PENDING", "AMBIGUOUS");
 
     @GetMapping("/failure")
     public ResponseEntity<Void> failure(@RequestParam(required = false) String txn) {
@@ -94,7 +111,7 @@ public class EsewaController {
                         payments.save(p);
                     });
         }
-        return toResultPage(false, txn);
+        return toResultPage("failed", txn);
     }
 
     /** eSewa may send "1,000.0" — compare as numbers, ignoring thousands separators. */
@@ -108,9 +125,9 @@ public class EsewaController {
         }
     }
 
-    private ResponseEntity<Void> toResultPage(boolean success, String txn) {
+    private ResponseEntity<Void> toResultPage(String status, String txn) {
         String location = props.resultPageUrl()
-                + "?status=" + (success ? "success" : "failed")
+                + "?status=" + status
                 + "&txn=" + (txn == null ? "" : URLEncoder.encode(txn, StandardCharsets.UTF_8));
         return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(location)).build();
     }
