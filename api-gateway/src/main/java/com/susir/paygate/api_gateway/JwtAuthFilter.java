@@ -31,10 +31,8 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
 
         String path = exchange.getRequest().getURI().getPath();
 
-        // /auth/** endpoints are PUBLIC — no token needed.
-        // These are how users GET a token in the first place,
-        // so we can't require a token to access them.
-        if (path.startsWith("/auth/")) {
+        // Public paths need no token — see isPublicPath below.
+        if (isPublicPath(path)) {
             return chain.filter(exchange);
         }
 
@@ -84,6 +82,18 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
             exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
             return exchange.getResponse().setComplete();
         }
+    }
+
+    // Paths that skip the JWT check:
+    //  - /auth/**  — this is how users GET a token in the first place.
+    //  - eSewa's success/failure redirects — the user's browser comes back
+    //    from eSewa's site without our token. payment-service doesn't trust
+    //    these blindly: it checks eSewa's signature and asks eSewa directly.
+    // Matched exactly, so e.g. /api/payments/esewa/initiate still needs a token.
+    static boolean isPublicPath(String path) {
+        return path.startsWith("/auth/")
+                || path.equals("/api/payments/esewa/success")
+                || path.equals("/api/payments/esewa/failure");
     }
 
     // Priority order — lower number = runs first.
