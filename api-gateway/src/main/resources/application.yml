@@ -23,6 +23,17 @@ spring:
           predicates:
             - Path=/auth/**
 
+        # eSewa sends the user's browser back here after payment. Listed BEFORE the
+        # general payment route so it wins, and deliberately without the circuit
+        # breaker: callbacks are slow (they call eSewa's status API), so they could
+        # trip the breaker's slow-call threshold — and an open breaker would show a
+        # paying user a JSON error and leave their payment PENDING. payment-service
+        # caps its own eSewa calls with timeouts instead.
+        - id: esewa-callback-route
+          uri: lb://payment-service
+          predicates:
+            - Path=/api/payments/esewa/success,/api/payments/esewa/failure
+
         - id: payment-service-route
           uri: lb://payment-service
           predicates:
