@@ -1,5 +1,6 @@
 package com.susir.paygate.payment.esewa;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -33,7 +34,15 @@ public class EsewaService {
     private final RestClient restClient;
     private final JsonMapper json = JsonMapper.builder().build();
 
-    public EsewaService(EsewaProperties props, RestClient.Builder restClientBuilder) {
+    // Spring Boot 4 doesn't provide a RestClient.Builder bean with just the webmvc
+    // starter, so the app uses this constructor and builds its own client.
+    @Autowired
+    public EsewaService(EsewaProperties props) {
+        this(props, RestClient.builder());
+    }
+
+    // Tests pass a builder bound to a mock server.
+    EsewaService(EsewaProperties props, RestClient.Builder restClientBuilder) {
         this.props = props;
         this.restClient = restClientBuilder.build();
     }
