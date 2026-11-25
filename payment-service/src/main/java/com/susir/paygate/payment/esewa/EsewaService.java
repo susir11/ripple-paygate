@@ -1,6 +1,7 @@
 package com.susir.paygate.payment.esewa;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -13,6 +14,7 @@ import java.math.BigDecimal;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -38,7 +40,16 @@ public class EsewaService {
     // starter, so the app uses this constructor and builds its own client.
     @Autowired
     public EsewaService(EsewaProperties props) {
-        this(props, RestClient.builder());
+        this(props, RestClient.builder().requestFactory(timeouts()));
+    }
+
+    // Keep the eSewa status check well inside the gateway's 10s time limit,
+    // so a hung eSewa API gives "ERROR" instead of the gateway's fallback page.
+    private static SimpleClientHttpRequestFactory timeouts() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(3));
+        factory.setReadTimeout(Duration.ofSeconds(5));
+        return factory;
     }
 
     // Tests pass a builder bound to a mock server.

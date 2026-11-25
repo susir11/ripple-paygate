@@ -56,6 +56,15 @@ resilience4j:
         permitted-number-of-calls-in-half-open-state: 3
         slow-call-duration-threshold: 3s
         slow-call-rate-threshold: 50
+  # How long the gateway waits for payment-service before giving up and
+  # returning the fallback. Resilience4j's default is 1s, which is too short:
+  # the eSewa success callback calls eSewa's status API (takes ~1–3s) before
+  # answering. payment-service caps that call at 3s connect + 5s read, so 10s
+  # leaves headroom.
+  timelimiter:
+    instances:
+      paymentCircuitBreaker:
+        timeout-duration: 10s
 
 management:
   endpoints:
