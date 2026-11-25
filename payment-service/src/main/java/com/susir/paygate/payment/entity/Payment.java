@@ -20,5 +20,6 @@ public class Payment {
 
     private String transactionId;
     private Double amount;
-    private String status;  // e.g., "SUCCESS" or "PENDING"
+    private String status;  // "PENDING", "SUCCESS" or "FAILED"
+    private String refId;   // eSewa's transaction code, set once a payment is verified
 }
