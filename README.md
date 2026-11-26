@@ -4,6 +4,9 @@ Ripple PayGate is a microservices-based payment gateway built with Java Spring B
 It simulates a real-world payment processing system with authentication, service discovery,
 fault tolerance, and a frontend interface — all running inside Docker containers.
 
+> **New to the project?** Read the full guide: [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md).
+> It explains every service, the payment flow step by step, how to run and test it, and troubleshooting.
+
 ---
 
 ## What It Does
