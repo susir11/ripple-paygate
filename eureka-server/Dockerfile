@@ -1,14 +1,24 @@
-# Base image: a lightweight Linux distro with Java 21 already installed.
-# We use this instead of a full OS image because it is much smaller and faster to build.
-FROM eclipse-temurin:21-jdk
+# Two stages: build the jar inside Docker, then copy only the jar into a small image.
+# This means `docker compose up --build` always runs your latest code — there is
+# no need to run Maven on your own machine first.
 
-# All commands below run from this folder inside the container
+# ---- Stage 1: build ----
+FROM eclipse-temurin:21-jdk AS build
+WORKDIR /src
+
+# Copy the Maven wrapper and pom first. Docker caches each step, so as long as
+# pom.xml doesn't change, the dependency download below is reused on rebuilds.
+COPY .mvn .mvn
+COPY mvnw pom.xml ./
+RUN chmod +x mvnw && ./mvnw -B -q dependency:go-offline
+
+# Now the source code, then build. Tests run separately (./mvnw test), not here.
+COPY src src
+RUN ./mvnw -B -q package -DskipTests && cp target/*.jar /app.jar
+
+# ---- Stage 2: run ----
+# The JRE image only has what's needed to RUN Java, so it is much smaller than the JDK.
+FROM eclipse-temurin:21-jre
 WORKDIR /app
-
-# Copy the jar you built earlier into the container,
-# and rename it to a fixed name so the next line does not need to guess the version number
-COPY target/*.jar app.jar
-
-# This is the command Docker runs when the container starts.
-# It is the same as running java -jar app.jar on your own machine.
+COPY --from=build /app.jar app.jar
 ENTRYPOINT ["java", "-jar", "app.jar"]

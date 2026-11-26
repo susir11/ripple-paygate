@@ -3,6 +3,7 @@ package com.susir.paygate.payment.esewa;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Map;
@@ -37,10 +38,10 @@ class EsewaServiceTest {
 
     @Test
     void buildFormFields_signsTotalUuidProductCode() {
-        Map<String, String> f = service.buildFormFields("abc-123", 100.0);
+        Map<String, String> f = service.buildFormFields("abc-123", new BigDecimal("100.00"));
 
-        assertEquals("100.0", f.get("amount"));
-        assertEquals("100.0", f.get("total_amount"));
+        assertEquals("100", f.get("amount"));
+        assertEquals("100", f.get("total_amount"));
         assertEquals("0", f.get("tax_amount"));
         assertEquals("0", f.get("product_service_charge"));
         assertEquals("0", f.get("product_delivery_charge"));
@@ -49,9 +50,20 @@ class EsewaServiceTest {
         assertEquals("http://localhost:8080/api/payments/esewa/success", f.get("success_url"));
         assertEquals("http://localhost:8080/api/payments/esewa/failure?txn=abc-123", f.get("failure_url"));
         assertEquals("total_amount,transaction_uuid,product_code", f.get("signed_field_names"));
-        assertEquals(service.sign("total_amount=100.0,transaction_uuid=abc-123,product_code=EPAYTEST"),
+        assertEquals(service.sign("total_amount=100,transaction_uuid=abc-123,product_code=EPAYTEST"),
                 f.get("signature"));
         assertFalse(f.containsValue("8gBm/:&EnhH.1/q"), "secret must never be sent");
+    }
+
+    @Test
+    void formatAmount_isTheSameWhateverTheScale() {
+        // The DB column has 2 decimal places, the request may have 0 or 1. All must
+        // produce the same text, because that text is what gets signed.
+        assertEquals("100", EsewaService.formatAmount(new BigDecimal("100")));
+        assertEquals("100", EsewaService.formatAmount(new BigDecimal("100.0")));
+        assertEquals("100", EsewaService.formatAmount(new BigDecimal("100.00")));
+        assertEquals("100.5", EsewaService.formatAmount(new BigDecimal("100.50")));
+        assertEquals("1000", EsewaService.formatAmount(new BigDecimal("1E+3")));
     }
 
     @Test

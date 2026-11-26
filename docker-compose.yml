@@ -8,28 +8,44 @@ services:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USERNAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+    # Published so you can browse the data from pgAdmin / IntelliJ on localhost:5433.
     ports:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # "Healthy" = Postgres accepts connections, not just "the container started".
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   eureka-server:
     build: ./eureka-server
     container_name: eureka-server
     restart: unless-stopped
     ports:
-      - "8761:8761"
+      - "8761:8761"   # dashboard: http://localhost:8761
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "-o", "/dev/null", "http://localhost:8761/eureka/apps"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   # Auth service handles registration and login.
   # It issues JWT tokens that the gateway will validate
   # on every subsequent payment request.
+  # No "ports:" on purpose — only the gateway (inside Docker's network) can reach it.
   auth-service:
     build: ./auth-service
     container_name: auth-service
     restart: unless-stopped
     depends_on:
-      - postgres-db
-      - eureka-server
+      postgres-db:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
     environment:
       DB_NAME: ${DB_NAME}
       DB_USERNAME: ${DB_USERNAME}
@@ -38,37 +54,40 @@ services:
       # and api-gateway (verifies tokens).
       # Same key on both sides — like a shared signing certificate.
       JWT_SECRET: ${JWT_SECRET}
-    ports:
-      - "8082:8082"
 
   api-gateway:
     build: ./api-gateway
     container_name: api-gateway
     restart: unless-stopped
     depends_on:
-      - eureka-server
-      - auth-service
+      eureka-server:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      payment-service:
+        condition: service_started
     environment:
       # Gateway needs the same JWT_SECRET to verify tokens
       # that auth-service signed. Without this, it can't
       # validate incoming requests.
       JWT_SECRET: ${JWT_SECRET}
     ports:
-      - "8080:8080"
+      - "8080:8080"   # the ONLY way into the backend from outside Docker
 
+  # No "ports:" on purpose — only the gateway can reach it.
   payment-service:
     build: ./payment-service
     container_name: payment-service
     restart: unless-stopped
     depends_on:
-      - postgres-db
-      - eureka-server
+      postgres-db:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
     environment:
       DB_NAME: ${DB_NAME}
       DB_USERNAME: ${DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "9091:9091"
 
   frontend:
     build: ./frontend

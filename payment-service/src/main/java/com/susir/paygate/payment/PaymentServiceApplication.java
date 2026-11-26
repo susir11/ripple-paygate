@@ -4,9 +4,11 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
 @ConfigurationPropertiesScan  // picks up EsewaProperties (the "esewa:" block in application.yml)
+@EnableScheduling  // runs PendingPaymentReconciler every few minutes
 @EnableDiscoveryClient  // This tells Eureka: "Hey, I'm a worker, add me to your phone book!"
 public class PaymentServiceApplication {
 

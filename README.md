@@ -35,20 +35,23 @@ without going through here first. It does three things:
 - **Routing** — forwards `/auth/**` to Auth Service and `/api/payments/**` to Payment Service
 - **Circuit Breaker** — monitors Payment Service health and returns a fallback response if it goes down
 
-### Auth Service (Port 8082)
+### Auth Service (internal port 8082)
 Handles user registration and login. When a user logs in successfully, it generates
 a JWT token — a signed credential the user must send with every payment request.
-Passwords are never stored in plain text; they are encrypted with BCrypt before saving.
+Passwords are never stored in plain text; they are hashed with BCrypt before saving.
+Invalid input and failed logins get clear JSON errors (400 / 401 / 409).
+Not published outside Docker — only reachable through the gateway.
 
-### Payment Service (Port 9091)
-Processes payment requests. Receives the payment amount, generates a unique transaction ID,
-sets the status to SUCCESS, and saves the record to the PostgreSQL database.
-Only reachable through the API Gateway — direct access is blocked.
+### Payment Service (internal port 9091)
+Takes payments through eSewa: creates a PENDING payment for the logged-in user, verifies
+eSewa's answer (signature + server-to-server status check) and marks it SUCCESS or FAILED.
+A background job re-checks payments stuck in PENDING. Money is stored as exact decimals.
+Not published outside Docker — only reachable through the API Gateway.
 
 ### PostgreSQL Database (Port 5433)
-Stores all application data in two tables:
+Stores all application data in two tables, created by Flyway migrations:
 - `users` — registered accounts (managed by Auth Service)
-- `payments` — processed transactions (managed by Payment Service)
+- `payments` — payments and who made them (managed by Payment Service)
 
 ### Frontend (Port 3000)
 A simple web interface served by Nginx. Users can register, log in, and submit payments
@@ -85,12 +88,13 @@ PostgreSQL Database
 | Technology | Purpose |
 |---|---|
 | Java 21 | Programming language |
-| Spring Boot | Application framework |
+| Spring Boot 4 / Spring Cloud 2025.1 | Application framework |
 | Spring Cloud Gateway | Reactive API Gateway |
 | Netflix Eureka | Service discovery |
 | Spring Security + JWT | Authentication |
 | Resilience4j | Circuit Breaker |
 | Spring Data JPA | Database access |
+| Flyway | Database schema migrations |
 | PostgreSQL | Persistent storage |
 | Docker + Docker Compose | Containerization |
 | Nginx | Frontend static file server |
@@ -114,16 +118,12 @@ DB_USERNAME=postgres
 DB_PASSWORD=your_password_here
 JWT_SECRET=your_jwt_secret_at_least_32_characters_long
 
-3. Build all service JARs (run from each service folder):
-cd eureka-server && .\mvnw.cmd clean package -DskipTests && cd ..
-cd auth-service && .\mvnw.cmd clean package -DskipTests && cd ..
-cd api-gateway && .\mvnw.cmd clean package -DskipTests && cd ..
-cd payment-service && .\mvnw.cmd clean package -DskipTests && cd ..
+   All four values are required — the services refuse to start without them.
 
-4. Start the full stack:
-   docker compose up --build
+3. Build and start the full stack (Maven runs inside Docker, no local build needed):
+   docker compose up -d --build
 
-5. Open the frontend: `http://localhost:3000`
+4. Wait about a minute, then open the frontend: `http://localhost:3000`
 
 ## API Endpoints
 
@@ -133,7 +133,7 @@ All requests go through the API Gateway on port 8080.
 |---|---|---|---|
 | POST | /auth/register | No | Create a new account |
 | POST | /auth/login | No | Login and receive JWT token |
-| POST | /api/payments/process | Yes (Bearer token) | Process a payment (simulated, no real provider) |
+| GET | /api/payments/mine | Yes (Bearer token) | Your 20 most recent payments |
 | POST | /api/payments/esewa/initiate | Yes (Bearer token) | Create a PENDING payment and get a signed eSewa form |
 | GET | /api/payments/esewa/success | No (eSewa signature) | eSewa redirects here after payment; verified, then redirects to `result.html` |
 | GET | /api/payments/esewa/failure | No | eSewa redirects here on failure/cancel |

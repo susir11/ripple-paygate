@@ -1,4 +1,6 @@
 package com.susir.paygate.payment.esewa;
 
-public record EsewaInitiateRequest(Double amount) {
+import java.math.BigDecimal;
+
+public record EsewaInitiateRequest(BigDecimal amount) {
 }

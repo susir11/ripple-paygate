@@ -18,6 +18,7 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Talks the eSewa ePay v2 protocol:
@@ -31,6 +32,15 @@ import java.util.Map;
 public class EsewaService {
 
     static final String REQUEST_SIGNED_FIELDS = "total_amount,transaction_uuid,product_code";
+
+    // Answers from eSewa that don't settle the payment yet: we couldn't reach eSewa
+    // ("ERROR"), or eSewa itself is still processing. These must never become FAILED,
+    // or a user who did pay would be told it failed and might pay twice.
+    static final Set<String> UNDECIDED = Set.of("ERROR", "PENDING", "AMBIGUOUS");
+
+    static boolean isUndecided(String esewaStatus) {
+        return UNDECIDED.contains(esewaStatus);
+    }
 
     private final EsewaProperties props;
     private final RestClient restClient;
@@ -69,13 +79,17 @@ public class EsewaService {
         }
     }
 
-    /** The one place amounts become strings, so what we sign is exactly what we send. */
-    public static String formatAmount(Double amount) {
-        return BigDecimal.valueOf(amount).toPlainString();
+    /**
+     * The one place amounts become strings, so what we sign is exactly what we send.
+     * Trailing zeros are dropped so 100, 100.0 and 100.00 (as read back from the
+     * NUMERIC(12,2) column) all become "100" - the same text every time.
+     */
+    public static String formatAmount(BigDecimal amount) {
+        return amount.stripTrailingZeros().toPlainString();
     }
 
     /** Every field the browser must POST to eSewa's form URL, including the signature. */
-    public Map<String, String> buildFormFields(String transactionUuid, Double amount) {
+    public Map<String, String> buildFormFields(String transactionUuid, BigDecimal amount) {
         String total = formatAmount(amount);
 
         Map<String, String> fields = new LinkedHashMap<>();
@@ -146,6 +160,11 @@ public class EsewaService {
      * if eSewa can't be reached or answers with something unexpected.
      */
     public String checkStatus(String transactionUuid, String totalAmount) {
+        return lookupStatus(transactionUuid, totalAmount).status();
+    }
+
+    /** Same as {@link #checkStatus}, plus eSewa's reference id (ref_id) when it sends one. */
+    public EsewaStatus lookupStatus(String transactionUuid, String totalAmount) {
         try {
             URI uri = UriComponentsBuilder.fromUriString(props.statusUrl())
                     .queryParam("product_code", props.productCode())
@@ -156,10 +175,11 @@ public class EsewaService {
                     .toUri();
 
             String body = restClient.get().uri(uri).retrieve().body(String.class);
-            String status = text(json.readTree(body), "status");
-            return status != null ? status : "ERROR";
+            JsonNode node = json.readTree(body);
+            String status = text(node, "status");
+            return status != null ? new EsewaStatus(status, text(node, "ref_id")) : EsewaStatus.error();
         } catch (Exception e) {
-            return "ERROR";
+            return EsewaStatus.error();
         }
     }
 

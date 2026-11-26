@@ -5,25 +5,35 @@ spring:
   application:
     name: payment-service
   datasource:
-    # "postgres-db" isn't a real internet address — it's the name we're about
-    # to give the Postgres container in docker-compose.yml. Inside Docker's
-    # internal network, containers can find each other by service name.
+    # "postgres-db" isn't a real internet address — it's the name of the Postgres
+    # container in docker-compose.yml. Inside Docker's internal network,
+    # containers can find each other by service name.
     url: jdbc:postgresql://postgres-db:5432/${DB_NAME:paygate_db}
     username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:changeme}
+    # No default on purpose: the service refuses to start without a real password.
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: update
-    show-sql: true
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
+      # Flyway owns the schema (src/main/resources/db/migration).
+      # "validate" only checks that the Java entities match the tables.
+      ddl-auto: validate
+    # Don't keep a database connection open while the HTTP response is written.
+    open-in-view: false
+  flyway:
+    # auth-service and payment-service share one database, so each keeps its own
+    # migration history table.
+    table: flyway_payment_history
+    # The database may already contain tables (from before Flyway, or from
+    # auth-service). Mark that starting point as version 0 so V1 still runs —
+    # V1 uses IF NOT EXISTS, so it is safe either way.
+    baseline-on-migrate: true
+    baseline-version: 0
 
 eureka:
   client:
     service-url:
-      # Same idea — "eureka-server" will be a container name, not "localhost"
+      # Same idea — "eureka-server" is a container name, not "localhost"
       defaultZone: http://eureka-server:8761/eureka/
 
 # eSewa ePay v2. Defaults are eSewa's public sandbox (UAT) merchant —
@@ -40,6 +50,9 @@ esewa:
   # After verifying, we send the browser to this frontend page
   result-page-url: "${ESEWA_RESULT_PAGE_URL:http://localhost:3000/result.html}"
 
-logging:
-  level:
-    org.springframework.web: DEBUG
+# Background job that re-checks payments stuck in PENDING (PendingPaymentReconciler).
+payments:
+  reconcile:
+    enabled: true
+    interval: PT5M      # run every 5 minutes
+    older-than: PT15M   # only payments started more than 15 minutes ago

@@ -38,7 +38,7 @@ document.getElementById("register-form").addEventListener("submit", async (e) =>
       body: JSON.stringify({ username, password })
     });
 
-    if (!response.ok) throw new Error("Registration failed");
+    if (!response.ok) throw new Error(await errorMessage(response, "Registration failed"));
 
     // Registration returns a token immediately — log them in right away
     jwtToken = await response.text();
@@ -64,7 +64,7 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
       body: JSON.stringify({ username, password })
     });
 
-    if (!response.ok) throw new Error("Invalid username or password");
+    if (!response.ok) throw new Error(await errorMessage(response, "Login failed"));
 
     // Store the token — this is what gets sent with every payment request
     jwtToken = await response.text();
@@ -79,6 +79,38 @@ function onLoginSuccess(username) {
   document.getElementById("welcome-msg").textContent =
     `Logged in as: ${username}`;
   showCard("payment-card");
+  loadHistory();
+}
+
+// ─── Payment history ─────────────────────────────────────────────────────────
+
+// GET /api/payments/mine returns only THIS user's payments: the gateway reads
+// the username from the JWT, so there's no way to ask for someone else's.
+async function loadHistory() {
+  const tbody = document.querySelector("#history tbody");
+  tbody.replaceChildren();
+  try {
+    const response = await fetch(`${GATEWAY}/api/payments/mine`, {
+      headers: { "Authorization": `Bearer ${jwtToken}` }
+    });
+    if (!response.ok) return;
+    const payments = await response.json();
+
+    document.getElementById("history").classList.toggle("hidden", payments.length === 0);
+    document.getElementById("history-empty").classList.toggle("hidden", payments.length > 0);
+
+    for (const p of payments) {
+      const row = tbody.insertRow();
+      // textContent, never innerHTML, so data can't inject HTML into the page
+      row.insertCell().textContent = p.createdAt ? new Date(p.createdAt).toLocaleString() : "—";
+      row.insertCell().textContent = `Rs. ${Number(p.amount).toFixed(2)}`;
+      const status = row.insertCell();
+      status.textContent = p.status;
+      status.className = `status-${p.status.toLowerCase()}`;
+    }
+  } catch (e) {
+    // History is a nice-to-have; paying still works without it.
+  }
 }
 
 // ─── Logout ──────────────────────────────────────────────────────────────────
@@ -153,6 +185,15 @@ function submitToEsewa(formUrl, fields) {
 }
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
+
+// auth-service sends errors as {"error": "...", "message": "..."} — show its message.
+async function errorMessage(response, fallback) {
+  try {
+    const body = await response.json();
+    if (body && body.message) return body.message;
+  } catch (e) { /* not JSON */ }
+  return fallback;
+}
 
 function showError(elementId, message) {
   const el = document.getElementById(elementId);

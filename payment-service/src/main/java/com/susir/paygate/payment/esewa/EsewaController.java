@@ -10,13 +10,14 @@ import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.Set;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
  * The eSewa payment flow:
  *
- *  1. POST /initiate  (logged-in user, via gateway + JWT)
+ *  1. POST /initiate  (logged-in user, via gateway + JWT; the gateway tells us who
+ *     it is in the X-Authenticated-User header)
  *     → save a PENDING payment, return the signed form for the browser to post to eSewa.
  *  2. User pays on eSewa's site.
  *  3. eSewa redirects the browser to GET /success?data=...  or  GET /failure?txn=...
@@ -38,9 +39,18 @@ public class EsewaController {
         this.props = props;
     }
 
+    // Largest amount the NUMERIC(12,2) column can hold.
+    static final BigDecimal MAX_AMOUNT = new BigDecimal("9999999999.99");
+
     @PostMapping("/initiate")
-    public ResponseEntity<EsewaInitiateResponse> initiate(@RequestBody EsewaInitiateRequest request) {
-        if (request.amount() == null || request.amount() <= 0) {
+    public ResponseEntity<EsewaInitiateResponse> initiate(
+            @RequestHeader(value = "X-Authenticated-User", required = false) String username,
+            @RequestBody EsewaInitiateRequest request) {
+        // The gateway sets this header only after verifying the JWT.
+        if (username == null || username.isBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (!isValidAmount(request.amount())) {
             return ResponseEntity.badRequest().build();
         }
 
@@ -48,6 +58,8 @@ public class EsewaController {
         payment.setTransactionId(UUID.randomUUID().toString());
         payment.setAmount(request.amount());
         payment.setStatus("PENDING");
+        payment.setUsername(username);
+        payment.setCreatedAt(Instant.now());
         payments.save(payment);
 
         return ResponseEntity.ok(new EsewaInitiateResponse(
@@ -88,9 +100,10 @@ public class EsewaController {
         }
 
         // Not a definite answer yet (eSewa unreachable, still processing, or "halted"):
-        // keep it PENDING so a later visit to this same link can verify again,
-        // instead of telling someone who paid that it failed.
-        if (UNDECIDED.contains(esewaStatus)) {
+        // keep it PENDING so a later visit to this same link - or the background
+        // PendingPaymentReconciler - can verify again, instead of telling someone
+        // who paid that it failed.
+        if (EsewaService.isUndecided(esewaStatus)) {
             return toResultPage("pending", txn);
         }
 
@@ -98,8 +111,6 @@ public class EsewaController {
         payments.save(payment);
         return toResultPage("failed", txn);
     }
-
-    private static final Set<String> UNDECIDED = Set.of("ERROR", "PENDING", "AMBIGUOUS");
 
     @GetMapping("/failure")
     public ResponseEntity<Void> failure(@RequestParam(required = false) String txn) {
@@ -114,12 +125,19 @@ public class EsewaController {
         return toResultPage("failed", txn);
     }
 
+    /** Positive, at most 2 decimal places (paisa), and small enough for the column. */
+    private static boolean isValidAmount(BigDecimal amount) {
+        return amount != null
+                && amount.signum() > 0
+                && amount.stripTrailingZeros().scale() <= 2
+                && amount.compareTo(MAX_AMOUNT) <= 0;
+    }
+
     /** eSewa may send "1,000.0" — compare as numbers, ignoring thousands separators. */
-    private static boolean sameAmount(String esewaAmount, Double ourAmount) {
+    private static boolean sameAmount(String esewaAmount, BigDecimal ourAmount) {
         if (esewaAmount == null) return false;
         try {
-            return new BigDecimal(esewaAmount.replace(",", ""))
-                    .compareTo(BigDecimal.valueOf(ourAmount)) == 0;
+            return new BigDecimal(esewaAmount.replace(",", "")).compareTo(ourAmount) == 0;
         } catch (NumberFormatException e) {
             return false;
         }

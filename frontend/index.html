@@ -38,10 +38,12 @@
 
     <form id="register-form">
         <label for="reg-username">Username</label>
-        <input type="text" id="reg-username" required placeholder="Choose a username">
+        <input type="text" id="reg-username" required minlength="3" maxlength="50"
+               pattern="[A-Za-z0-9_.\-]+" placeholder="3-50 letters, digits, _ . -">
 
         <label for="reg-password">Password</label>
-        <input type="password" id="reg-password" required placeholder="Choose a password">
+        <input type="password" id="reg-password" required minlength="8" maxlength="72"
+               placeholder="At least 8 characters">
 
         <button type="submit">Register</button>
     </form>
@@ -67,6 +69,13 @@
     </form>
 
     <div id="result" class="result hidden"></div>
+
+    <h2>My recent payments</h2>
+    <table id="history" class="history">
+        <thead><tr><th>Date</th><th>Amount</th><th>Status</th></tr></thead>
+        <tbody></tbody>
+    </table>
+    <p id="history-empty" class="hidden">No payments yet.</p>
 </div>
 
 <script src="script.js"></script>

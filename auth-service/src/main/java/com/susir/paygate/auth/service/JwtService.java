@@ -3,6 +3,7 @@ package com.susir.paygate.auth.service;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
@@ -31,10 +32,20 @@ public class JwtService {
     @Value("${jwt.expiration}")
     private long expirationMs;
 
+    // Runs once at startup. A missing or short secret stops the service right away
+    // with a clear message, instead of failing on the first login.
+    @PostConstruct
+    void checkSecret() {
+        if (secretKey == null || secretKey.getBytes(StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalStateException(
+                    "JWT_SECRET must be set and at least 32 characters long (HMAC-SHA256 needs a 256-bit key)");
+        }
+    }
+
     // Converts the raw secret string into a cryptographic signing key.
     // This is called internally every time we sign or verify a token.
     private SecretKey getSigningKey() {
-        return Keys.hmacShaKeyFor(secretKey.getBytes());
+        return Keys.hmacShaKeyFor(secretKey.getBytes(StandardCharsets.UTF_8));
     }
 
     // GENERATE: Called after a successful login.

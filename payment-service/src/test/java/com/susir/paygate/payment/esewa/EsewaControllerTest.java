@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Optional;
 
@@ -41,10 +42,11 @@ class EsewaControllerTest {
 
     @Test
     void initiate_savesPendingAndReturnsFields() throws Exception {
-        when(esewa.buildFormFields(anyString(), eq(100.0)))
-                .thenReturn(Map.of("total_amount", "100.0", "signature", "SIG"));
+        when(esewa.buildFormFields(anyString(), eq(new BigDecimal("100.0"))))
+                .thenReturn(Map.of("total_amount", "100", "signature", "SIG"));
 
         mvc.perform(post("/api/payments/esewa/initiate")
+                        .header("X-Authenticated-User", "alice")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amount\":100.0}"))
                 .andExpect(status().isOk())
@@ -54,15 +56,31 @@ class EsewaControllerTest {
         ArgumentCaptor<Payment> saved = ArgumentCaptor.forClass(Payment.class);
         verify(repo).save(saved.capture());
         assertEquals("PENDING", saved.getValue().getStatus());
-        assertEquals(100.0, saved.getValue().getAmount());
+        assertEquals(0, new BigDecimal("100").compareTo(saved.getValue().getAmount()));
+        assertEquals("alice", saved.getValue().getUsername());
+        assertNotNull(saved.getValue().getCreatedAt());
         assertNotNull(saved.getValue().getTransactionId());
-        verify(esewa).buildFormFields(saved.getValue().getTransactionId(), 100.0);
+        verify(esewa).buildFormFields(saved.getValue().getTransactionId(), new BigDecimal("100.0"));
+    }
+
+    @Test
+    void initiate_withoutAuthenticatedUser_isUnauthorized() throws Exception {
+        // The gateway always sets this header after checking the JWT. If it's missing,
+        // the request didn't come through a verified login, so refuse it.
+        mvc.perform(post("/api/payments/esewa/initiate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":100}"))
+                .andExpect(status().isUnauthorized());
+        verify(repo, never()).save(any());
     }
 
     @Test
     void initiate_rejectsNonPositiveAmount() throws Exception {
-        for (String body : new String[]{"{\"amount\":0}", "{\"amount\":-5}", "{}"}) {
+        // zero, negative, missing, more than 2 decimal places (paisa), too large for the column
+        for (String body : new String[]{"{\"amount\":0}", "{\"amount\":-5}", "{}",
+                "{\"amount\":10.005}", "{\"amount\":12345678901}"}) {
             mvc.perform(post("/api/payments/esewa/initiate")
+                            .header("X-Authenticated-User", "alice")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body))
                     .andExpect(status().isBadRequest());
@@ -76,7 +94,7 @@ class EsewaControllerTest {
     void success_validAndComplete_marksSuccess() throws Exception {
         Payment p = pending(100.0);
         callback(true, "COMPLETE", "100.0");
-        when(esewa.checkStatus("abc-123", "100.0")).thenReturn("COMPLETE");
+        when(esewa.checkStatus("abc-123", "100")).thenReturn("COMPLETE");
 
         expectRedirect("/api/payments/esewa/success?data=D", RESULT + "?status=success&txn=abc-123");
 
@@ -89,7 +107,7 @@ class EsewaControllerTest {
     void success_amountWithComma_matches() throws Exception {
         Payment p = pending(1000.0);
         callback(true, "COMPLETE", "1,000.0");
-        when(esewa.checkStatus("abc-123", "1000.0")).thenReturn("COMPLETE");
+        when(esewa.checkStatus("abc-123", "1000")).thenReturn("COMPLETE");
 
         expectRedirect("/api/payments/esewa/success?data=D", RESULT + "?status=success&txn=abc-123");
 
@@ -115,7 +133,7 @@ class EsewaControllerTest {
         // eSewa's status API was unreachable: we don't know yet, so don't call it FAILED.
         Payment p = pending(100.0);
         callback(true, "COMPLETE", "100.0");
-        when(esewa.checkStatus("abc-123", "100.0")).thenReturn("ERROR");
+        when(esewa.checkStatus("abc-123", "100")).thenReturn("ERROR");
 
         expectRedirect("/api/payments/esewa/success?data=D", RESULT + "?status=pending&txn=abc-123");
 
@@ -128,7 +146,7 @@ class EsewaControllerTest {
         for (String esewaStatus : new String[]{"PENDING", "AMBIGUOUS"}) {
             Payment p = pending(100.0);
             callback(true, "COMPLETE", "100.0");
-            when(esewa.checkStatus("abc-123", "100.0")).thenReturn(esewaStatus);
+            when(esewa.checkStatus("abc-123", "100")).thenReturn(esewaStatus);
 
             expectRedirect("/api/payments/esewa/success?data=D", RESULT + "?status=pending&txn=abc-123");
 
@@ -141,7 +159,7 @@ class EsewaControllerTest {
         for (String esewaStatus : new String[]{"NOT_FOUND", "CANCELED", "FULL_REFUND"}) {
             Payment p = pending(100.0);
             callback(true, "COMPLETE", "100.0");
-            when(esewa.checkStatus("abc-123", "100.0")).thenReturn(esewaStatus);
+            when(esewa.checkStatus("abc-123", "100")).thenReturn(esewaStatus);
 
             expectRedirect("/api/payments/esewa/success?data=D", RESULT + "?status=failed&txn=abc-123");
 
@@ -153,7 +171,7 @@ class EsewaControllerTest {
     void success_afterPending_secondHitVerifiesAgain() throws Exception {
         Payment p = pending(100.0);
         callback(true, "COMPLETE", "100.0");
-        when(esewa.checkStatus("abc-123", "100.0")).thenReturn("ERROR", "COMPLETE");
+        when(esewa.checkStatus("abc-123", "100")).thenReturn("ERROR", "COMPLETE");
 
         expectRedirect("/api/payments/esewa/success?data=D", RESULT + "?status=pending&txn=abc-123");
         expectRedirect("/api/payments/esewa/success?data=D", RESULT + "?status=success&txn=abc-123");
@@ -232,7 +250,8 @@ class EsewaControllerTest {
     private Payment pending(double amount) {
         Payment p = new Payment();
         p.setTransactionId("abc-123");
-        p.setAmount(amount);
+        // as loaded from the NUMERIC(12,2) column, e.g. 100.00
+        p.setAmount(BigDecimal.valueOf(amount).setScale(2));
         p.setStatus("PENDING");
         when(repo.findByTransactionId("abc-123")).thenReturn(Optional.of(p));
         return p;

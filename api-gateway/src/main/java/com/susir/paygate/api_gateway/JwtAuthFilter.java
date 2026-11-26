@@ -8,11 +8,13 @@ import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
 
 // GlobalFilter means this runs on EVERY request that hits the gateway —
 // before it gets routed anywhere. Think of it as the security checkpoint
@@ -20,68 +22,76 @@ import javax.crypto.SecretKey;
 @Component
 public class JwtAuthFilter implements GlobalFilter, Ordered {
 
+    // Header that tells downstream services WHO made the request.
+    // Only this filter may set it — see stripUserHeader below.
+    static final String USER_HEADER = "X-Authenticated-User";
+
     // Same secret key as auth-service — must match exactly.
     // Auth-service SIGNS tokens with this key.
     // Gateway VERIFIES tokens with this same key.
-    @Value("${jwt.secret}")
-    private String secretKey;
+    private final SecretKey key;
+
+    public JwtAuthFilter(@Value("${jwt.secret:}") String secret) {
+        // Refuse to start with a missing or weak secret, instead of rejecting
+        // every request later with a confusing 401.
+        if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalStateException(
+                    "JWT_SECRET must be set and at least 32 characters long (HMAC-SHA256 needs a 256-bit key)");
+        }
+        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+    }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
 
-        String path = exchange.getRequest().getURI().getPath();
+        // Never trust a user header sent by the client — otherwise anyone could
+        // claim to be someone else. Remove it first, always; we add our own below
+        // only after the token checks out.
+        ServerWebExchange cleaned = withRequest(exchange, stripUserHeader(exchange.getRequest()));
+
+        String path = cleaned.getRequest().getURI().getPath();
 
         // Public paths need no token — see isPublicPath below.
         if (isPublicPath(path)) {
-            return chain.filter(exchange);
+            return chain.filter(cleaned);
         }
 
-        // For all other requests (like /api/payments/process),
+        // For all other requests (like /api/payments/esewa/initiate),
         // check for the Authorization header.
         // Standard format: "Authorization: Bearer eyJhbGci..."
-        String authHeader = exchange.getRequest()
-                .getHeaders()
-                .getFirst("Authorization");
+        String authHeader = cleaned.getRequest().getHeaders().getFirst("Authorization");
 
         // If there's no Authorization header at all — reject immediately.
         // 401 Unauthorized: "I don't know who you are."
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
-            return exchange.getResponse().setComplete();
+            return reject(cleaned);
         }
 
         // Strip "Bearer " prefix to get the raw token string
         String token = authHeader.substring(7);
 
+        Claims claims;
         try {
             // Verify the token signature using our secret key.
             // If the token was tampered with, expired, or signed with
             // a different key — this throws an exception and we reject.
-            SecretKey key = Keys.hmacShaKeyFor(secretKey.getBytes());
-            Claims claims = Jwts.parser()
+            claims = Jwts.parser()
                     .verifyWith(key)
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
-
-            // Token is valid — add the username as a header so
-            // downstream services know who is making the request.
-            // payment-service can read this header if it ever needs
-            // to know which user initiated the payment.
-            String username = claims.getSubject();
-            exchange.getRequest().mutate()
-                    .header("X-Authenticated-User", username)
-                    .build();
-
-            // Pass the request through to payment-service
-            return chain.filter(exchange);
-
         } catch (Exception e) {
-            // Token was invalid, expired, or tampered with — reject.
             // 401 Unauthorized: "Your credentials are not valid."
-            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
-            return exchange.getResponse().setComplete();
+            return reject(cleaned);
         }
+
+        // Token is valid — tell downstream services who is making the request.
+        // Requests can't be changed in place: mutate() builds a NEW request, and
+        // we must pass that new one on, or the header is silently lost.
+        ServerHttpRequest withUser = cleaned.getRequest().mutate()
+                .header(USER_HEADER, claims.getSubject())
+                .build();
+        return chain.filter(withRequest(cleaned, withUser));
     }
 
     // Paths that skip the JWT check:
@@ -94,6 +104,22 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         return path.startsWith("/auth/")
                 || path.equals("/api/payments/esewa/success")
                 || path.equals("/api/payments/esewa/failure");
+    }
+
+    private static ServerHttpRequest stripUserHeader(ServerHttpRequest request) {
+        if (!request.getHeaders().containsHeader(USER_HEADER)) {
+            return request;
+        }
+        return request.mutate().headers(h -> h.remove(USER_HEADER)).build();
+    }
+
+    private static ServerWebExchange withRequest(ServerWebExchange exchange, ServerHttpRequest request) {
+        return request == exchange.getRequest() ? exchange : exchange.mutate().request(request).build();
+    }
+
+    private static Mono<Void> reject(ServerWebExchange exchange) {
+        exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+        return exchange.getResponse().setComplete();
     }
 
     // Priority order — lower number = runs first.

@@ -10,15 +10,23 @@ spring:
     # users table belongs to auth-service, payments table to payment-service.
     url: jdbc:postgresql://postgres-db:5432/${DB_NAME:paygate_db}
     username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:changeme}
+    # No default on purpose: the service refuses to start without a real password.
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: update
-    show-sql: true
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
+      # Flyway owns the schema (src/main/resources/db/migration).
+      # "validate" only checks that the Java entities match the tables.
+      ddl-auto: validate
+    # Don't keep a database connection open while the HTTP response is written.
+    open-in-view: false
+  flyway:
+    # One database, two services: each keeps its own migration history table.
+    table: flyway_auth_history
+    # The database may already have tables (from before Flyway, or from
+    # payment-service). Start counting at 0 so V1 still runs — it is IF NOT EXISTS.
+    baseline-on-migrate: true
+    baseline-version: 0
 
 eureka:
   client:
@@ -27,8 +35,9 @@ eureka:
 
 # JWT configuration
 # Secret must be at least 32 characters long for HMAC-SHA256 to work.
-# This same secret will be used by the gateway to VERIFY tokens.
+# This same secret is used by the gateway to VERIFY tokens.
 # Think of it as the shared signing key between the issuer and verifier.
+# No default on purpose: JwtService refuses to start without a real secret.
 jwt:
-  secret: ${JWT_SECRET:thisIsADefaultSecretKeyForDevOnlyChangeInProd}
+  secret: ${JWT_SECRET}
   expiration: 86400000  # 24 hours in milliseconds (24 * 60 * 60 * 1000)

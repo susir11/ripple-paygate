@@ -16,7 +16,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class EsewaServiceStatusTest {
 
     static final String STATUS_URL =
-            "https://rc.esewa.com.np/api/epay/transaction/status/?product_code=EPAYTEST&total_amount=100.0&transaction_uuid=abc-123";
+            "https://rc.esewa.com.np/api/epay/transaction/status/?product_code=EPAYTEST&total_amount=100&transaction_uuid=abc-123";
 
     private MockRestServiceServer server;
     private EsewaService service;
@@ -36,8 +36,19 @@ class EsewaServiceStatusTest {
                         "{\"product_code\":\"EPAYTEST\",\"transaction_uuid\":\"abc-123\",\"total_amount\":100.0,\"status\":\"COMPLETE\",\"ref_id\":\"R1\"}",
                         MediaType.APPLICATION_JSON));
 
-        assertEquals("COMPLETE", service.checkStatus("abc-123", "100.0"));
+        assertEquals("COMPLETE", service.checkStatus("abc-123", "100"));
         server.verify();
+    }
+
+    @Test
+    void lookupStatus_returnsRefId() {
+        server.expect(requestTo(STATUS_URL))
+                .andRespond(withSuccess("{\"status\":\"COMPLETE\",\"ref_id\":\"R1\"}", MediaType.APPLICATION_JSON));
+
+        EsewaStatus result = service.lookupStatus("abc-123", "100");
+
+        assertEquals("COMPLETE", result.status());
+        assertEquals("R1", result.refId());
     }
 
     @Test
@@ -45,14 +56,14 @@ class EsewaServiceStatusTest {
         server.expect(requestTo(STATUS_URL))
                 .andRespond(withSuccess("{\"status\":\"NOT_FOUND\",\"ref_id\":null}", MediaType.APPLICATION_JSON));
 
-        assertEquals("NOT_FOUND", service.checkStatus("abc-123", "100.0"));
+        assertEquals("NOT_FOUND", service.checkStatus("abc-123", "100"));
     }
 
     @Test
     void checkStatus_serverError_returnsError() {
         server.expect(requestTo(STATUS_URL)).andRespond(withServerError());
 
-        assertEquals("ERROR", service.checkStatus("abc-123", "100.0"));
+        assertEquals("ERROR", service.checkStatus("abc-123", "100"));
     }
 
     @Test
@@ -62,6 +73,6 @@ class EsewaServiceStatusTest {
                 .andRespond(withSuccess("{\"code\":0,\"error_message\":\"Service is currently unavailable\"}",
                         MediaType.APPLICATION_JSON));
 
-        assertEquals("ERROR", service.checkStatus("abc-123", "100.0"));
+        assertEquals("ERROR", service.checkStatus("abc-123", "100"));
     }
 }

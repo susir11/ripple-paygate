@@ -30,6 +30,9 @@ public class SecurityConfig {
                         // These two endpoints must be PUBLIC — no token required.
                         // This is the only way a user can GET a token in the first place.
                         .requestMatchers("/auth/register", "/auth/login").permitAll()
+                        // Spring Boot's error page. Without this, any error on a public
+                        // endpoint turns into a confusing 401/403 instead of the real status.
+                        .requestMatchers("/error").permitAll()
                         // Every other request to auth-service requires authentication.
                         .anyRequest().authenticated()
                 )
